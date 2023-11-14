@@ -79,62 +79,68 @@ __global__ void GPU_HoughTran(unsigned char *pic, int w, int h, int *acc, float 
 }
 
 // Función para dibujar las líneas más pesadas en la imagen
-void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, int rBins, int degreeBins, float radInc, int threshold) {
-  for (int rIdx = 0; rIdx < rBins; rIdx++) {
-      for (int tIdx = 0; tIdx < degreeBins; tIdx++) {
-          int index = rIdx * degreeBins + tIdx;
-          int weight = h_hough[index];
+void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, int rBins, int degreeBins, float radInc, int threshold, std::vector<int> lineIndices) {
+    for (int i = 0; i < lineIndices.size(); ++i) {
+        int index = lineIndices[i];
+        int weight = h_hough[index];
 
-          if (weight > threshold) {
-              // Calculate theta and r
-              float theta = tIdx * radInc;
-              float r = (rIdx * 2 * M_PI / degreeBins) - M_PI;
+        if (weight > threshold) {
+            // Calculate theta and r
+            float theta = (index % degreeBins) * radInc;
+            float r = (index / degreeBins) * 2 * M_PI / degreeBins - M_PI;
 
-              // Convert to Cartesian coordinates
-              float a = cos(theta), b = sin(theta);
-              float x0 = a * r, y0 = b * r;
+            // Convert to Cartesian coordinates
+            float a = cos(theta), b = sin(theta);
+            float x0 = a * r, y0 = b * r;
 
-              // Calculate the center of the image
-              int centerX = w / 2;
-              int centerY = h / 2;
+            // Calculate the center of the image
+            int centerX = w / 2;
+            int centerY = h / 2;
 
-              // Calculate start and end points
-              int x1 = cvRound(x0 + 1000 * (-b));
-              int y1 = cvRound(y0 + 1000 * (a));
-              int x2 = cvRound(x0 - 1000 * (-b));
-              int y2 = cvRound(y0 - 1000 * (a));
+            // Calculate start and end points
+            int x1 = cvRound(x0 + 1000 * (-b));
+            int y1 = cvRound(y0 + 1000 * (a));
+            int x2 = cvRound(x0 - 1000 * (-b));
+            int y2 = cvRound(y0 - 1000 * (a));
 
-              // Draw the line on the image (left corner to right)
-              cv::line(image, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(0, 0, 255), 2);
-              
-              // Draw the line on the image (Horizontal lines)
-              cv::line(image, cv::Point(0, y1), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
-              
-              // Draw the line on the image (Partial Vertical lines)
-              cv::line(image, cv::Point(y1, 0), cv::Point(y1, x2), cv::Scalar(0, 0, 255), 2);
+            // Draw the line on the image (left corner to right)
+            cv::line(image, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(0, 0, 255), 2);
+            
+            
+            cv::line(image, cv::Point(w - 1, y1), cv::Point(x1, h - 1), cv::Scalar(0, 0, 255), 2);
+            
+            
+            cv::line(image, cv::Point(0, h - 1), cv::Point(w - 1, y1), cv::Scalar(0, 0, 255), 2);
+            
+            // cv::line(image, cv::Point(h - 1, 0), cv::Point(x1, w - 1), cv::Scalar(0, 0, 255), 2);
 
-              // Convert to Cartesian coordinates relative to the image center
-              x1 = cvRound(centerX + r * cos(theta));
-              y1 = cvRound(centerY + r * sin(theta));
-              x2 = cvRound(centerX + r * cos(theta) + 1000 * (-sin(theta)));
-              y2 = cvRound(centerY + r * sin(theta) + 1000 * cos(theta));
+            // Draw the line on the image (Horizontal lines)
+            cv::line(image, cv::Point(0, y1), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
+            
+            // Draw the line on the image (Partial Vertical lines)
+            cv::line(image, cv::Point(y1, 0), cv::Point(y1, x2), cv::Scalar(0, 0, 255), 2);
 
-              // Draw the line on the image (Left to center)
-              cv::line(image, cv::Point(x1, y2), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
+            // Convert to Cartesian coordinates relative to the image center
+            x1 = cvRound(centerX + r * cos(theta));
+            y1 = cvRound(centerY + r * sin(theta));
+            x2 = cvRound(centerX + r * cos(theta) + 1000 * (-sin(theta)));
+            y2 = cvRound(centerY + r * sin(theta) + 1000 * cos(theta));
 
-              // Convert to Cartesian coordinates relative to the image center
-              x1 = cvRound(centerX + r * cos(theta));
-              y1 = cvRound(centerY + r * sin(theta));
-              x2 = cvRound(centerX + r * cos(theta) - 1000 * (-sin(theta)));
-              y2 = cvRound(centerY + r * sin(theta) - 1000 * cos(theta));
+            // Draw the line on the image (Left to center)
+            cv::line(image, cv::Point(x1, y2), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
 
-              // Draw the line on the image (Right to center)
-              cv::line(image, cv::Point(x1, y2), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
-          
-          }
-      }
-  }
+            // Convert to Cartesian coordinates relative to the image center
+            x1 = cvRound(centerX + r * cos(theta));
+            y1 = cvRound(centerY + r * sin(theta));
+            x2 = cvRound(centerX + r * cos(theta) - 1000 * (-sin(theta)));
+            y2 = cvRound(centerY + r * sin(theta) - 1000 * cos(theta));
+
+            // Draw the line on the image (Right to center)
+            cv::line(image, cv::Point(x1, y2), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
+        }
+    }
 }
+
 
 
 // Función para comparar los resultados y registrar discrepancias
@@ -245,8 +251,19 @@ int main(int argc, char **argv) {
     // Use the average plus two standard deviations as the threshold
     int threshold = static_cast<int>(mean + 2 * stddev);
 
+    // Identify the indices of the lines with the highest weights
+    std::vector<int> lineIndices;
+    for (int i = 0; i < degreeBins * rBins; ++i) {
+        lineIndices.push_back(i);
+    }
+
+    std::sort(lineIndices.begin(), lineIndices.end(), [&h_hough](int i1, int i2) { return h_hough[i1] > h_hough[i2]; });
+
+    int numLinesToDraw = 0.004 * degreeBins * rBins;
+    lineIndices.resize(numLinesToDraw);
+
     // Llama a la función para dibujar las líneas más pesadas
-    drawAllLines(imageWithLines, h_hough, w, h, rBins, degreeBins, radInc, threshold);
+    drawAllLines(imageWithLines, h_hough, w, h, rBins, degreeBins, radInc, threshold, lineIndices);
 
     // Guarda la imagen con las líneas coloreadas utilizando OpenCV
     cv::imwrite("output.png", imageWithLines);
