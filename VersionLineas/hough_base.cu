@@ -106,7 +106,10 @@ void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, float rScale, floa
     }
 
     // Ordenar las líneas por peso en orden descendente
-    std::sort(linesWithWeights.begin(), linesWithWeights.end(), [](const std::pair<cv::Vec2f, int>& point0, const std::pair<cv::Vec2f, int>& point1) { return point0.second > point1.second;});
+    std::sort(linesWithWeights.begin(), linesWithWeights.end(), [](const std::pair<cv::Vec2f, int>& point0, const std::pair<cv::Vec2f, int>& point1) { 
+            return point0.second > point1.second;
+        }
+    );
 
     for (int i = 0; i < linesWithWeights.size(); ++i) {
         cv::Vec2f lineParams = linesWithWeights[i].first;
@@ -124,15 +127,15 @@ void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, float rScale, floa
 
 
 // Función para comparar los resultados y registrar discrepancias
-bool compareResults(int* gpuResult, int* cpuResult, int size) {
-    bool match = true;
+void compareResults(int* gpuResult, int* cpuResult, int size) {
+    // Bucle a través de todos los resultados
     for (int i = 0; i < size; i++) {
+        // Si los resultados de GPU y CPU no son iguales
         if (gpuResult[i] != cpuResult[i]) {
-            match = false;
-            printf("Discrepancia en el índice %d: GPU = %d, CPU = %d\n", i, gpuResult[i], cpuResult[i]);
+            // Registra la diferencia
+            printf("Calculation mismatch at %d: GPU = %d, CPU = %d\n", i, gpuResult[i], cpuResult[i]);
         }
     }
-    return match;
 }
 
 
@@ -207,19 +210,13 @@ int main(int argc, char **argv) {
     cudaMemcpy(h_hough, d_hough, sizeof(int) * degreeBins * rBins, cudaMemcpyDeviceToHost);
 
     // compare CPU and GPU results
-    bool resultsMatch = compareResults(h_hough, cpuResult, degreeBins * rBins);
-
-    if (resultsMatch) {
-        printf("Los resultados coinciden entre GPU y CPU.\n");
-    } else {
-        printf("Los resultados difieren entre GPU y CPU.\n");
-    }
+    void resultsMatch = compareResults(h_hough, cpuResult, degreeBins * rBins);
 
     // Crea una copia de la imagen original utilizando OpenCV
     cv::Mat imageWithLines;
     cv::cvtColor(originalImage, imageWithLines, cv::COLOR_GRAY2BGR); // Convierte a imagen en color
 
-    int threshold = 4175; // Define la cantidad máxima de líneas a dibujar
+    int threshold = 4175; // Threshold para evitar dibujar todas las líneas
     drawAllLines(imageWithLines, h_hough, w, h, rScale, rMax, threshold);
 
     // Marcar el final del tiempo de ejecución del kernel
