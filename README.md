@@ -2,6 +2,7 @@
 
 ### Uso
 - Descargar los siguientes archivos (VersionLineas - Versión más actual)
+  - Descargar carpeta common
   - hough.cu
   - Makefile
   - Proyecto_Paralela_Lineas.ipynb
