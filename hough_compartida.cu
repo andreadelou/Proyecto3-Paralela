@@ -55,112 +55,95 @@ void CPU_HoughTran (unsigned char *pic, int w, int h, int **acc)
 
 // GPU kernel. One thread per image pixel is spawned.
 // The accummulator memory needs to be allocated by the host in global memory
-// GPU kernel. One thread per image pixel is spawned.
-// The accumulator memory needs to be allocated by the host in global memory
 __global__ void GPU_HoughTran(unsigned char *pic, int w, int h, int *acc, float rMax, float rScale, float *d_Cos, float *d_Sin) {
     int blockID = blockIdx.x;
     int threadID = threadIdx.x;
     int gloID = blockID * blockDim.x + threadID;
 
-    if (gloID >= w * h) return; // in case of extra threads in block
-
-    int xCent = w / 2;
-    int yCent = h / 2;
-    int xCoord = gloID % w - xCent;
-    int yCoord = yCent - gloID / w;
-
-    __shared__ int localAcc[degreeBins * rBins]; // Local accumulator in shared memory
+    // Definir locID usando los IDs de los hilos del bloque
     int locID = threadIdx.x;
 
-    // Initialize local accumulator to 0
-    localAcc[locID] = 0;
+    // Definir un acumulador local en memoria compartida llamado localAcc
+    extern __shared__ int localAcc[];
+   
+    // Inicializar a 0 todos los elementos de este acumulador local
+    for (int i = locID; i < degreeBins * rBins; i += blockDim.x) {
+        localAcc[i] = 0;
+    }
 
-    // Barrier to ensure all threads have completed initialization
+    // Barrera para asegurar que todos los hilos hayan completado la inicialización del acumulador local
     __syncthreads();
 
-    if (pic[gloID] > 0) {
-        for (int tIdx = 0; tIdx < degreeBins; tIdx++) {
-            float r = xCoord * d_Cos[tIdx] + yCoord * d_Sin[tIdx];
-            int rIdx = (r + rMax) / rScale;
-            
-            // Atomic add to local accumulator
-            atomicAdd(&localAcc[tIdx * rBins + rIdx], 1);
+    if (gloID < w * h) { // Reemplazar el return por una condición para continuar solo si el hilo está dentro de la imagen
+        int xCent = w / 2;
+        int yCent = h / 2;
+        int xCoord = gloID % w - xCent;
+        int yCoord = yCent - gloID / w;
+
+        if (pic[gloID] > 0) {
+            for (int tIdx = 0; tIdx < degreeBins; tIdx++) {
+                float r = xCoord * d_Cos[tIdx] + yCoord * d_Sin[tIdx];
+                int rIdx = (r + rMax) / rScale;
+
+                // Coordinar el acceso a memoria y garantizar que la operación de suma sea completada por cada hilo
+                atomicAdd(&localAcc[rIdx * degreeBins + tIdx], 1);
+            }
         }
     }
 
-    // Barrier to ensure all threads have completed local accumulation
+    // Barrera para asegurar que todos los hilos hayan completado el proceso de incremento del acumulador local
     __syncthreads();
 
-    // Loop to add local accumulator values to the global accumulator
+    // Agregar un loop para sumar los valores del acumulador local localAcc al acumulador global acc
     for (int i = locID; i < degreeBins * rBins; i += blockDim.x) {
         atomicAdd(&acc[i], localAcc[i]);
     }
 }
 
 
-// Función para dibujar las líneas más pesadas en la imagen
-void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, int rBins, int degreeBins, float radInc, int threshold, std::vector<int> lineIndices) {
-    for (int i = 0; i < lineIndices.size(); ++i) {
-        int index = lineIndices[i];
-        int weight = h_hough[index];
-
-        if (weight > threshold) {
-            // Calculate theta and r
-            float theta = (index % degreeBins) * radInc;
-            float r = (index / degreeBins) * 2 * M_PI / degreeBins - M_PI;
-
-            // Convert to Cartesian coordinates
-            float a = cos(theta), b = sin(theta);
-            float x0 = a * r, y0 = b * r;
-
-            // Calculate the center of the image
-            int centerX = w / 2;
-            int centerY = h / 2;
-
-            // Calculate start and end points
-            int x1 = cvRound(x0 + 1000 * (-b));
-            int y1 = cvRound(y0 + 1000 * (a));
-            int x2 = cvRound(x0 - 1000 * (-b));
-            int y2 = cvRound(y0 - 1000 * (a));
-
-            // Draw the line on the image (left corner to right)
-            cv::line(image, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(0, 0, 255), 2);
-            
-            
-            cv::line(image, cv::Point(w - 1, y1), cv::Point(x1, h - 1), cv::Scalar(0, 0, 255), 2);
-            
-            
-            cv::line(image, cv::Point(0, h - 1), cv::Point(w - 1, y1), cv::Scalar(0, 0, 255), 2);
-            
-            // cv::line(image, cv::Point(h - 1, 0), cv::Point(x1, w - 1), cv::Scalar(0, 0, 255), 2);
-
-            // Draw the line on the image (Horizontal lines)
-            cv::line(image, cv::Point(0, y1), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
-            
-            // Draw the line on the image (Partial Vertical lines)
-            cv::line(image, cv::Point(y1, 0), cv::Point(y1, x2), cv::Scalar(0, 0, 255), 2);
-
-            // Convert to Cartesian coordinates relative to the image center
-            x1 = cvRound(centerX + r * cos(theta));
-            y1 = cvRound(centerY + r * sin(theta));
-            x2 = cvRound(centerX + r * cos(theta) + 1000 * (-sin(theta)));
-            y2 = cvRound(centerY + r * sin(theta) + 1000 * cos(theta));
-
-            // Draw the line on the image (Left to center)
-            cv::line(image, cv::Point(x1, y2), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
-
-            // Convert to Cartesian coordinates relative to the image center
-            x1 = cvRound(centerX + r * cos(theta));
-            y1 = cvRound(centerY + r * sin(theta));
-            x2 = cvRound(centerX + r * cos(theta) - 1000 * (-sin(theta)));
-            y2 = cvRound(centerY + r * sin(theta) - 1000 * cos(theta));
-
-            // Draw the line on the image (Right to center)
-            cv::line(image, cv::Point(x1, y2), cv::Point(x2, y1), cv::Scalar(0, 0, 255), 2);
-        }
+// Se calculan puntos de la línea inicial y final
+double getPoints(double val, char op, double angulo) {
+    if (op == '+') {
+        return val + 1000 * (angulo);
+    } else if (op == '-') {
+        return val - 1000 * (angulo);
+    } else {
+        return 0.0; // Valor predeterminado si el operador no es válido
     }
 }
 
+// Función para dibujar las líneas más pesadas en la imagen
+void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, float rScale, float rMax, int threshold) {
+    std::vector<std::pair<cv::Vec2f, int>> linesWithWeights; // Vector para almacenar las líneas con su peso
+
+    for (int r = 0; r < rBins; r++) {
+        for (int theta = 0; theta < degreeBins; theta++) {
+            int index = r * degreeBins + theta;
+            int weight = h_hough[index];
+            if (weight > threshold) { // Comprobar si el peso es mayor que el umbral
+                float rValue = (r * rScale) - (rMax);
+                float thetaValue = theta * radInc;
+                linesWithWeights.push_back(std::make_pair(cv::Vec2f(thetaValue, rValue), weight));
+            }
+        }
+    }
+
+    // Ordenar las líneas por peso en orden descendente
+    std::sort(linesWithWeights.begin(), linesWithWeights.end(), [](const std::pair<cv::Vec2f, int>& point0, const std::pair<cv::Vec2f, int>& point1) { return point0.second > point1.second;});
+
+    for (int i = 0; i < linesWithWeights.size(); ++i) {
+        cv::Vec2f lineParams = linesWithWeights[i].first;
+        float theta = lineParams[0], r = lineParams[1];
+        double cosTheta = cos(theta), sinTheta = sin(theta);
+        double x0 = (w / 2) + (r * cosTheta), y0 = (h / 2) - (r * sinTheta);
+        double xA = getPoints(x0, '+', sinTheta), xB = getPoints(x0, '-', sinTheta), 
+        yA = getPoints(y0, '+', cosTheta), yB = getPoints(y0, '-', cosTheta);
+
+        cv::line(image, cv::Point(cvRound(xA), cvRound(yA)), cv::Point(cvRound(xB), cvRound(yB)), cv::Scalar(0, 255, 255), 1.75, cv::LINE_AA);
+    }
+
+    cv::imwrite("output.png", image);
+}
 
 
 // Función para comparar los resultados y registrar discrepancias
@@ -239,9 +222,13 @@ int main(int argc, char **argv) {
     cudaEventRecord(start);
 
     // execution configuration uses a 1-D grid of 1-D blocks, each made of 256 threads
-    //1 thread por pixel
-    int blockNum = ceil(w * h / 256);
-    GPU_HoughTran<<<blockNum, 256>>>(d_in, w, h, d_hough, rMax, rScale, d_Cos, d_Sin);
+    //Configurar la dimensión del bloque y memoria compartida
+    dim3 blockSize(256);
+    dim3 gridSize((w * h + blockSize.x - 1) / blockSize.x);
+    int sharedMemorySize = degreeBins * rBins * sizeof(int);
+
+    // Llamada al kernel con memoria compartida
+    GPU_HoughTran<<<gridSize, blockSize, sharedMemorySize>>>(d_in, w, h, d_hough, rMax, rScale, d_Cos, d_Sin);
 
     // get results from device
     cudaMemcpy(h_hough, d_hough, sizeof(int) * degreeBins * rBins, cudaMemcpyDeviceToHost);
@@ -259,34 +246,8 @@ int main(int argc, char **argv) {
     cv::Mat imageWithLines;
     cv::cvtColor(originalImage, imageWithLines, cv::COLOR_GRAY2BGR); // Convierte a imagen en color
 
-    // Calculate the average and standard deviation of the weights
-    double sum = 0, sum2 = 0;
-    for (int i = 0; i < degreeBins * rBins; ++i) {
-        sum += h_hough[i];
-        sum2 += h_hough[i] * h_hough[i];
-    }
-    double mean = sum / (degreeBins * rBins);
-    double stddev = sqrt((sum2 / (degreeBins * rBins)) - (mean * mean));
-
-    // Use the average plus two standard deviations as the threshold
-    int threshold = static_cast<int>(mean + 2 * stddev);
-
-    // Identify the indices of the lines with the highest weights
-    std::vector<int> lineIndices;
-    for (int i = 0; i < degreeBins * rBins; ++i) {
-        lineIndices.push_back(i);
-    }
-
-    std::sort(lineIndices.begin(), lineIndices.end(), [&h_hough](int i1, int i2) { return h_hough[i1] > h_hough[i2]; });
-
-    int numLinesToDraw = 0.002 * degreeBins * rBins;
-    lineIndices.resize(numLinesToDraw);
-
-    // Llama a la función para dibujar las líneas más pesadas
-    drawAllLines(imageWithLines, h_hough, w, h, rBins, degreeBins, radInc, threshold, lineIndices);
-
-    // Guarda la imagen con las líneas coloreadas utilizando OpenCV
-    cv::imwrite("output.png", imageWithLines);
+    int threshold = 4175; // Define la cantidad máxima de líneas a dibujar
+    drawAllLines(imageWithLines, h_hough, w, h, rScale, rMax, threshold);
 
     // Marcar el final del tiempo de ejecución del kernel
     cudaEventRecord(stop);
@@ -310,4 +271,3 @@ int main(int argc, char **argv) {
 
     return 0;
 }
-
