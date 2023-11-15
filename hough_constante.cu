@@ -89,40 +89,50 @@ __global__ void GPU_HoughTran(unsigned char *pic, int w, int h, int *acc, float 
     }
 }
 
-// Función para dibujar las líneas más pesadas en la imagen
-void drawMostProminentLines(cv::Mat& image, int *h_hough, int w, int h, int rBins, int degreeBins, float radInc) {
-    // Busca la línea con el peso más grande en h_hough
-    int maxWeight = -1;
-    int maxRIdx = -1;
-    int maxTIdx = -1;
+// Se calculan puntos de la línea inicial y final
+double getPoints(double val, char op, double angulo) {
+    if (op == '+') {
+        return val + 1000 * (angulo);
+    } else if (op == '-') {
+        return val - 1000 * (angulo);
+    } else {
+        return 0.0; // Valor predeterminado si el operador no es válido
+    }
+}
 
-    for (int rIdx = 0; rIdx < rBins; rIdx++) {
-        for (int tIdx = 0; tIdx < degreeBins; tIdx++) {
-            int index = rIdx * degreeBins + tIdx;
+// Función para dibujar las líneas más pesadas en la imagen
+void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, float rScale, float rMax, int threshold) {
+    std::vector<std::pair<cv::Vec2f, int>> linesWithWeights; // Vector para almacenar las líneas con su peso
+
+    for (int r = 0; r < rBins; r++) {
+        for (int theta = 0; theta < degreeBins; theta++) {
+            int index = r * degreeBins + theta;
             int weight = h_hough[index];
-            if (weight > maxWeight) {
-                maxWeight = weight;
-                maxRIdx = rIdx;
-                maxTIdx = tIdx;
+            if (weight > threshold) { // Comprobar si el peso es mayor que el umbral
+                float rValue = (r * rScale) - (rMax);
+                float thetaValue = theta * radInc;
+                linesWithWeights.push_back(std::make_pair(cv::Vec2f(thetaValue, rValue), weight));
             }
         }
     }
 
-    // Calcula los valores de theta y r correspondientes a la línea con el mayor peso
-    float maxTheta = maxTIdx * radInc;
-    float rMax = sqrt(1.0 * w * w + 1.0 * h * h) / 2;
-    float rScale = 2 * rMax / rBins;
-    float maxR = (maxRIdx * rScale) - rMax;
+    // Ordenar las líneas por peso en orden descendente
+    std::sort(linesWithWeights.begin(), linesWithWeights.end(), [](const std::pair<cv::Vec2f, int>& point0, const std::pair<cv::Vec2f, int>& point1) { return point0.second > point1.second;});
 
-    // Pinta la línea en la imagen
-    for (int i = 0; i < w; i++) {
-        int j = static_cast<int>((maxR - i * cos(maxTheta)) / sin(maxTheta));
-        if (j >= 0 && j < h) {
-            // Colorea el píxel en la imagen original con un color diferente (por ejemplo, rojo)
-            image.at<cv::Vec3b>(j, i) = cv::Vec3b(0, 0, 255); // Rojo brillante en formato BGR
-        }
+    for (int i = 0; i < linesWithWeights.size(); ++i) {
+        cv::Vec2f lineParams = linesWithWeights[i].first;
+        float theta = lineParams[0], r = lineParams[1];
+        double cosTheta = cos(theta), sinTheta = sin(theta);
+        double x0 = (w / 2) + (r * cosTheta), y0 = (h / 2) - (r * sinTheta);
+        double xA = getPoints(x0, '+', sinTheta), xB = getPoints(x0, '-', sinTheta), 
+        yA = getPoints(y0, '+', cosTheta), yB = getPoints(y0, '-', cosTheta);
+
+        cv::line(image, cv::Point(cvRound(xA), cvRound(yA)), cv::Point(cvRound(xB), cvRound(yB)), cv::Scalar(0, 255, 255), 1.75, cv::LINE_AA);
     }
+
+    cv::imwrite("output_constante.png", image);
 }
+
 
 // Función para comparar los resultados y registrar discrepancias
 bool compareResults(int* gpuResult, int* cpuResult, int size) {
@@ -155,7 +165,7 @@ int main(int argc, char **argv) {
     int w = originalImage.cols;
     int h = originalImage.rows;
 
-    // reemplazadas por las __constant__
+    // reemplazadas por las constantes
     // float *d_Cos;
     // float *d_Sin;
 
@@ -179,8 +189,8 @@ int main(int argc, char **argv) {
     float rMax = sqrt(1.0 * w * w + 1.0 * h * h) / 2;
     float rScale = 2 * rMax / rBins;
 
-    cudaMemcpyToSymbol(d_Cos, pcCos, sizeof(float) * degreeBins, cudaMemcpyHostToDevice);
-    cudaMemcpyToSymbol(d_Sin, pcSin, sizeof(float) * degreeBins, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(d_Cos, pcCos, sizeof(float) * degreeBins);
+    cudaMemcpyToSymbol(d_Sin, pcSin, sizeof(float) * degreeBins);
 
     // setup and copy data from host to device
     unsigned char *d_in, *h_in;
@@ -203,7 +213,7 @@ int main(int argc, char **argv) {
     // execution configuration uses a 1-D grid of 1-D blocks, each made of 256 threads
     //1 thread por pixel
     int blockNum = ceil(w * h / 256);
-    GPU_HoughTran<<<blockNum, 256>>>(d_in, w, h, d_hough, rMax, rScale, d_Cos, d_Sin);
+    GPU_HoughTran<<<blockNum, 256>>>(d_in, w, h, d_hough, rMax, rScale);
 
     // get results from device
     cudaMemcpy(h_hough, d_hough, sizeof(int) * degreeBins * rBins, cudaMemcpyDeviceToHost);
@@ -221,11 +231,8 @@ int main(int argc, char **argv) {
     cv::Mat imageWithLines;
     cv::cvtColor(originalImage, imageWithLines, cv::COLOR_GRAY2BGR); // Convierte a imagen en color
 
-    // Llama a la función para dibujar las líneas más pesadas
-    drawMostProminentLines(imageWithLines, h_hough, w, h, rBins, degreeBins, radInc);
-
-    // Guarda la imagen con las líneas coloreadas utilizando OpenCV
-    cv::imwrite("output.png", imageWithLines);
+    int threshold = 4175; // Define la cantidad máxima de líneas a dibujar
+    drawAllLines(imageWithLines, h_hough, w, h, rScale, rMax, threshold);
 
     // Marcar el final del tiempo de ejecución del kernel
     cudaEventRecord(stop);
@@ -249,4 +256,3 @@ int main(int argc, char **argv) {
 
     return 0;
 }
-
