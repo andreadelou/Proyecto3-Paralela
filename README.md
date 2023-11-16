@@ -25,3 +25,6 @@ make
 ./<nombre objeto> runway.pgm
 ```
 - (Nombre de objetos: hough, hough_compartida, hough_constante)
+
+#### Resultado programa base
+![output_1](https://github.com/andreadelou/Proyecto3-Paralela/assets/60325784/599ba4b3-7c44-4ef4-8077-a32c399ac564)
