@@ -122,7 +122,7 @@ void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, float rScale, floa
         cv::line(image, cv::Point(cvRound(xA), cvRound(yA)), cv::Point(cvRound(xB), cvRound(yB)), cv::Scalar(0, 255, 255), 1.75, cv::LINE_AA);
     }
 
-    cv::imwrite("output.png", image);
+    cv::imwrite("output_base.png", image);
 }
 
 
