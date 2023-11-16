@@ -127,15 +127,15 @@ void drawAllLines(cv::Mat& image, int *h_hough, int w, int h, float rScale, floa
 
 
 // Función para comparar los resultados y registrar discrepancias
-void compareResults(int* gpuResult, int* cpuResult, int size) {
-    // Bucle a través de todos los resultados
+bool compareResults(int* gpuResult, int* cpuResult, int size) {
+    bool match = true;
     for (int i = 0; i < size; i++) {
-        // Si los resultados de GPU y CPU no son iguales
         if (gpuResult[i] != cpuResult[i]) {
-            // Registra la diferencia
-            printf("Calculation mismatch at %d: GPU = %d, CPU = %d\n", i, gpuResult[i], cpuResult[i]);
+            match = false;
+            printf("Discrepancia en el índice %d: GPU = %d, CPU = %d\n", i, gpuResult[i], cpuResult[i]);
         }
     }
+    return match;
 }
 
 
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     cudaMemcpy(h_hough, d_hough, sizeof(int) * degreeBins * rBins, cudaMemcpyDeviceToHost);
 
     // compare CPU and GPU results
-    void resultsMatch = compareResults(h_hough, cpuResult, degreeBins * rBins);
+    bool resultsMatch = compareResults(h_hough, cpuResult, degreeBins * rBins);
 
     // Crea una copia de la imagen original utilizando OpenCV
     cv::Mat imageWithLines;
